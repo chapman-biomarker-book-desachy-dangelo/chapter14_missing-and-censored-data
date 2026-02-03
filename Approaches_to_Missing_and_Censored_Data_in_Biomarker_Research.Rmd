@@ -1,0 +1,697 @@
+---
+title: "Approaches to Missing and Censored Data in Biomarker Research"
+output: 
+  html_document:
+    code_folding: show
+    theme:
+      base_font:
+        google: Prompt
+      heading_font:
+        google: Proza Libre
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("thematic")) 
+  thematic::thematic_rmd(font = "auto")
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, fig.showtext = TRUE, comment = NA) 
+
+```
+
+```{r include=FALSE}
+# packageurl <- "https://cran.r-project.org/src/contrib/Archive/gsl/gsl_2.1-8.tar.gz"
+# install.packages(packageurl, repos = NULL, type = "source")
+# install.packages("clusterMI")
+library(clusterMI)
+library(inaparc)
+library(mclust)
+library(missMDA)
+library(FactoMineR)
+library(ClusterR)
+library(Rfast)
+library(parallel)
+library(inaparc)
+library(kpodclustr)
+library(ISLR)
+
+source(file = "functions.R")
+```
+
+```{r theme, include=FALSE}
+
+##theme for plots 
+library(ggplot2)
+theme_publication <- theme_bw() +
+  theme(
+    # Titles
+    plot.title = element_text(size = 9, hjust = 0.5),
+    axis.title = element_text(size = 8, ),
+    axis.text  = element_text(size = 8),
+    
+    # Legend
+    legend.title = element_text(size = 7),
+    legend.text  = element_text(size = 6),
+    legend.position = "right",   
+    legend.key.size = unit(0.6, "cm"), 
+    
+    # Margin
+    plot.margin = margin(3, 3, 3, 3)
+  )
+
+```
+## 4)	The case of omics data
+
+```{r data, include=FALSE}
+set.seed(1234)
+data("NCI60", package = "ISLR")
+nci.lab <- NCI60$labs
+nci.data <- NCI60$data
+k <- length(unique(nci.lab))
+
+# adding 30% of missing values MCAR 
+xxna<- clusterMI::prodna(nci.data, pct = 0.3)
+```
+
+### Principal components - section 4.a.i - figure 15.1
+
+```{r, include=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+
+## number of components (time consumming)
+# res.ncp <- estim_ncpPCA(xxna,
+#                     ncp.min = 5,
+#                     ncp.max = 20,
+#                     scale = TRUE,
+#                     method.cv = "Kfold",
+#                     nbsim = 10,
+#                     verbose = TRUE)
+# ncp <- 16
+# res.imp <- imputePCA(xxna, ncp = ncp, scale = TRUE)
+# res.pca <- PCA(res.imp$completeObs, graph = FALSE)
+#save(res.ncp, res.imp, res.pca, file = "pca_results.RData")
+load("data/pca_results.RData")
+
+## Figure 15.1
+col <- gray.colors(k)
+names(col) <- unique(nci.lab)
+col <- col[nci.lab]
+names(col) <- NULL
+
+#png("iterativepca.png", res=300,width=2000, height=2000)
+plot.new()
+plot(res.pca,
+     choix = "ind",
+     col.ind = col,
+     graph.type="classic",
+     label = "none",
+     cex=1.5)
+B <- array2DF(by(res.pca$ind$coord[,1:2],INDICES =  col,FUN = colmeans), simplify = TRUE)
+points(B[,2:3],col=B[,1],pch=3,cex=3,lwd=2)
+legend("topright", pch = 3,cex = .8, lwd = 2,legend = unique(nci.lab), ncol = 2, bty = "n", col = col)
+#dev.off()
+```
+
+```{r, include=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+#png("pca.png", res=300,width=2000, height=2000)
+res.pca.full <- PCA(nci.data, graph=FALSE)
+plot.new()
+plot(res.pca.full,
+     choix = "ind",
+     col.ind = col,
+     graph.type="classic",
+     label = "none",
+     cex=1.5)
+B <- array2DF(by(res.pca.full$ind$coord[,1:2],INDICES =  col,FUN = colmeans), simplify = TRUE)
+points(B[,2:3],col=B[,1],pch=3,cex=3,lwd=2)
+legend("topright", pch = 3,cex = .8, lwd = 2,legend = unique(nci.lab), ncol = 2, bty = "n", col = col)
+#dev.off()
+```
+
+### Clustering - section 4.a.ii - figure 15.2
+
+
+```{r, include=TRUE}
+
+## direct
+#res.kpod <- kpod(X = as.matrix(xxna), k = k)
+#save(res.kpod, file = "kpod_results.RData")
+load("data/kpod_results.RData")
+
+## Figure 15.2
+res.ca <- CA(table(res.kpod$cluster,nci.lab), graph=FALSE)
+
+#png("ca_clustering.png", res=300,width=2000, height=2000)
+print(plot(res.ca, graph.type = "classic",cex=1.2,col.row = "black", col.col = "darkgrey",xlim = c(-1.2,3.5)))
+#dev.off()
+```
+
+### Subspace clustering - section 4.a.iii - figure 15.3
+
+```{r, include=TRUE}
+
+# MI
+
+# res.imp <- MIPCA(xxna, ncp = 16, scale = TRUE, nboot = 20,verbose = TRUE)
+ # res.ana <- lapply(res.imp$res.MI,
+ #                       FUN = KMeans_rcpp ,
+ #                       clusters = k,num_init=10)
+# 
+#save(res.imp, res.ana, file = "imp_results.RData")
+load("data/imp_results.RData")
+
+### extract the set of partitions (as list)
+res.ana<- lapply(res.ana, "[[", "clusters")
+### pooling by NMF
+res.pool<- fastnmf(res.ana, nb.clust = k,method.init = c("BOK","kmeans"))
+part.km <- res.pool$best$clust
+
+# rkpod 
+# res.rkpod <- rkpod(xxna=xxna,
+#                    k=k,
+#                    q=6,
+#                    nnodes=7,
+#                    method.init.rkpod = rep("MIPCA",7),
+#                    ncp=16)
+# 
+# save(res.rkpod, file = "rkpod_results.RData")
+load("data/rkpod_results.RData")
+
+## Figure 15.3
+#png("rkpod_map.png", res=300,width=2000, height=2000)
+print(plot.rkpod(res.rkpod))
+#dev.off()
+```
+
+## 5)	The case of unique biomarkers
+
+### Data simulation
+
+We first simulate data based on the distribution of biomarkers (BMK) to better evaluate the impact of missing values on our statistical outcomes. This simulation, which includes fitting a logistic regression, serves as an illustrative example to demonstrate how missing data can influence efficacy related analyses. 
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+
+set.seed( 454)
+
+N <- 150
+
+age <- rnorm(n = N, mean = 50, sd = 20)
+gender <-  rbinom(n = N, size = 1, p=0.5)
+mutation <-  rbinom(n = N, size = 1, p=0.2)
+biomarker <- age*0.2 + 6*gender + 6*mutation + rnorm(N, mean = 0, sd = 4)
+
+stat <-  -2 + biomarker*0.2
+proba <- plogis(stat)
+ORR <- rbinom(N,1,proba)
+
+datasim <- data.frame(age = age, gender = as.factor(gender), mutation = mutation,
+                      biomarker = biomarker, 
+                      proba = proba, 
+                      ORR = ORR)
+```
+
+
+### Data exploration {.tabset .tabset-pills}
+
+#### Biomarker according to ORR
+
+```{r}
+corrplot <- ggboxplot(datasim, "ORR", "biomarker",
+          color = "ORR", palette =c("#00AFBB", "#E7B800"),
+          add = "jitter", shape = "ORR") + ggtitle("Biomarker distribution according to ORR")
+corrplot
+
+```
+
+
+#### Biomarker according to age
+
+```{r}
+ggscatter(datasim, x = "age", y = "biomarker",
+          color = "black", shape = 21, size = 3, # Points color, shape and size
+          add = "reg.line",  # Add regressin line
+          add.params = list(color = "blue", fill = "lightgray"), # Customize reg. line
+          conf.int = TRUE, # Add confidence interval
+          cor.coef = TRUE, # Add correlation coefficient. see ?stat_cor
+          cor.coeff.args = list(method = "pearson", label.x = 30, label.sep = "\n")) +
+            ggtitle("Biomarker according to age")
+
+```
+
+#### Biomarker according to gender
+
+```{r}
+ggboxplot(datasim, "gender", "biomarker",
+          color = "gender", palette =c("#00AFBB", "#E7B800"),
+          add = "jitter", shape = "gender")+
+            ggtitle("Biomarker according to gender")
+
+```
+
+#### Biomarker according to mutation
+
+```{r}
+ggboxplot(datasim, "mutation", "biomarker",
+          color = "mutation", palette =c("#00AFBB", "#E7B800"),
+          add = "jitter", shape = "mutation")+
+            ggtitle("Biomarker according to mutation")
+
+```
+
+### Logistic regression fit figure 15.4
+
+
+```{r}
+
+LOD <- quantile(datasim$biomarker, probs = 0.4)
+
+modelfull <- glm(ORR ~ biomarker, family = "binomial", data = datasim)
+#summary(modelfull)$coef
+
+logfit <- ggplot(data = datasim, aes(biomarker, ORR)) +
+  geom_point(alpha = .15, aes(color = as.factor(ORR))) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial")) +
+    geom_vline(xintercept = LOD, linetype="dotdash", color = "gray") + 
+  ggtitle("Logistic regression model fit") +
+  xlab("Biomarker") +
+  ylab("Probability of the event") +
+    theme_bw() 
+
+logfit
+
+ggsave(filename = "logfit.png", plot = logfit)
+
+# logfitbw <- ggplot(data = datasim, aes(biomarker, ORR)) +
+#   geom_point(aes(color = as.factor(ORR))) +
+#   geom_smooth(method = "glm", color = "black", method.args = list(family = "binomial")) +
+#     geom_vline(xintercept = LOD, linetype="dotdash", color = "gray") + 
+#   ggtitle("Logistic regression model fit") +
+#   xlab("Biomarker") +
+#   ylab("Probability of the event") +
+#     theme_bw() +
+#   scale_color_manual(
+#     name = "Response",
+#     values = c("0" = "black", "1" = "gray")
+#   ) 
+
+#logfitbw
+
+#ggsave(filename = "logfitbw.png", plot = logfitbw, height = 8, width = 8)
+
+```
+
+
+### Adding missing data and single imputation
+
+```{r}
+library(gridExtra)
+
+datasim$biomarkerNA  <- datasim$biomarker
+datasim$biomarkerNA[datasim$biomarkerNA < LOD] <- NA
+datasim$cens  <- is.na(datasim$biomarkerNA)
+
+datasim$biomarkerlod  <- datasim$biomarker
+datasim$biomarkerlod[datasim$biomarkerlod < LOD] <- LOD
+
+datasim$biomarkerlodsqrt2  <- datasim$biomarker
+datasim$biomarkerlodsqrt2[datasim$biomarkerlodsqrt2 < LOD] <- LOD/sqrt(2)
+
+datasim$biomarkerlod2  <- datasim$biomarker
+datasim$biomarkerlod2[datasim$biomarkerlod2 < LOD] <- LOD/2
+
+datasim$biomarker0  <- datasim$biomarker
+datasim$biomarker0[datasim$biomarker0 < LOD] <- 0
+
+plot0 <-  ggplot(datasim, aes(x=biomarker0)) + 
+  geom_density() + ggtitle("Imputation by 0")# + xlim(-2, 10)
+
+plotlod2 <-  ggplot(datasim, aes(x=biomarkerlod2)) + 
+  geom_density() +  ggtitle("Imputation by LOD/2") #xlim(0, 10) +
+
+plotlodsqrt2 <-  ggplot(datasim, aes(x=biomarkerlodsqrt2)) + 
+  geom_density()  + ggtitle("Imputation by LOD/sqrt(2)") #+ xlim(0, 10)
+
+plotlod <-  ggplot(datasim, aes(x=biomarkerlod)) + 
+  geom_density() + ggtitle("Imputation by LOD") #xlim(0, 10) + 
+
+plotfull <-  ggplot(datasim, aes(x=biomarker)) + 
+  geom_density()  + ggtitle("Full data") #+ xlim(-10, 10) + ylim(0, 0.4)
+
+plotcomp <-  ggplot(datasim, aes(x=biomarkerNA)) + 
+  geom_density()  + ggtitle("Complete Case") #+ xlim(-10, 10) + ylim(0, 0.4)
+
+grid.arrange(plotfull, plotcomp, plotlod, 
+             plotlodsqrt2, plotlod2, plot0,
+             nrow = 2)
+
+```
+
+
+### Multiple imputation from section 5.c - figure 15.5
+
+
+```{r}
+library(qgcomp)
+library(mice)
+library(dplyr)
+library(tidyr)
+#Imputation based on linear left censored model based on age + gender + mutation as covariate
+#10 imputation in this example - could be 5 as discussed in the book
+
+impdat <- mice::mice(data = datasim[, c("age", "gender", "mutation", "biomarkerNA")],
+              method = c("", "", "", "leftcenslognorm"),
+              lod=c(NA, NA, NA, LOD), debug=FALSE, m=10, print = FALSE)
+
+mires <- as.data.frame(matrix(unlist(impdat$imp), ncol = 10))
+colnames(mires) <- paste("imp", 1:10, sep ="_")
+
+mireslong <- mires %>%
+  pivot_longer(cols = starts_with("imp"),, names_to = "type", values_to = "biomarker")
+
+mireslong <- rbind(mireslong, 
+                   data.frame(type = rep("biomarkercens", length = N), biomarker = datasim$biomarkerNA)) %>% 
+  mutate(value = case_when(type == "biomarkercens" ~ "observed", 
+                           .default  = "imputed"))
+  
+densitymi <- ggplot(mireslong, aes(x=biomarker, fill=type)) +
+  geom_density(alpha=0.4, color = "gray") +
+  scale_fill_manual(values = c("darkcyan", rep("goldenrod", 10))) +
+   theme_bw() 
+
+
+#densitymi
+
+ggsave(filename = "densitymi.png", plot = densitymi)
+
+
+##Black and white figures for the book
+bw = 1
+densitymibw <- ggplot(mireslong, aes(x = biomarker, fill = type)) +
+  geom_density(alpha = 0.7, bw = bw) +
+  # couleurs pour chaque imputation + observed
+  scale_fill_manual(
+    values = c("biomarkercens" = "black", rep("gray", 10)),
+    guide = "none"   # enlève la légende liée à 'type'
+  ) +
+  # ajoute une légende simple basée sur 'value'
+  geom_density(aes(color = value), alpha = 0.7,  bw = bw) +
+  scale_color_manual(
+    name = "values",
+    values = c("observed" = "black", "imputed" = "gray")
+  ) +
+  ggtitle("Comparison of Observed and Imputed Biomarker Distributions")+
+  theme_publication
+
+#densitymibw
+
+ggsave(filename = "densitymibw.png", plot = densitymibw)
+
+
+boxplotmibw <- ggplot(mireslong, aes(y = biomarker, x = type, color = value)) +
+  geom_boxplot(fill = "white") +
+  geom_point() + 
+  # couleurs pour chaque imputation + observed
+  scale_color_manual(
+    name = "values",
+    values = c("observed" = "black", "imputed" = "gray")
+  ) + 
+  geom_hline(yintercept = LOD, color = "black", linetype = "dashed")+
+  ggtitle("Comparison of Observed and Imputed Biomarker Distributions")+
+  ylab("Biomarker values") + xlab("") + 
+  theme_publication +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+
+boxplotmibw
+
+ggsave(filename = "boxplot.png", plot = boxplotmibw, width = 7, height = 5)
+
+
+```
+
+### 5.a	Descriptive analysis of left censored biomarkers
+
+i-Kaplan Meier 
+
+```{r}
+library(NADA)
+library(censReg)
+
+##Kaplan Meier for left censored:
+km <- NADA::cenfit(datasim$biomarker, datasim$cens)
+
+##Display mean +/- se
+descriptive_km <- mean(km)
+descriptive_km
+
+```
+
+
+ii-ROS 
+
+```{r}
+#regression on order statistics:
+ros <- NADA::cenros(datasim$biomarker, is.na(datasim$cens))
+
+#Imputed values
+ros_values <- ros$modeled 
+
+#Mean & SD & SE
+mean_ros <- mean(ros_values)
+se_ros <- sd(ros_values) / sqrt(length(ros_values))
+
+# 95% confidence interval
+ci_lower_ros <- mean_ros - 1.96 * se_ros
+ci_upper_ros <- mean_ros + 1.96 * se_ros
+
+# Combine results
+descriptive_ros <- c(mean_ros, se_ros, ci_lower_ros, ci_upper_ros)
+names(descriptive_ros) <- names(descriptive_km)
+descriptive_ros
+
+```
+
+
+
+Tobit
+
+```{r}
+tobit <- censReg::censReg(datasim$biomarkerlod~1, left = LOD)
+
+# Estimateur (moyenne)
+mean_tobit <- coef(tobit)[1]
+
+# Erreur standard associée
+se_tobit <- sqrt(diag(vcov(tobit)))[1]
+
+# Intervalle de confiance à 95%
+ci_lower_tobit <- mean_tobit - 1.96 * se_tobit
+ci_upper_tobit <- mean_tobit + 1.96 * se_tobit
+
+# Combine results
+descriptive_tobit <- c(mean_tobit, se_tobit, ci_lower_tobit, ci_upper_tobit)
+names(descriptive_tobit) <- names(descriptive_km)
+descriptive_tobit
+
+```
+
+
+
+Comparison with full model and single imputation
+
+```{r}
+#Full model 
+mean_full <- mean(datasim$biomarker)
+se_full <- sd(datasim$biomarker) / sqrt(length(datasim$biomarker))
+
+#Complete Case
+mean_cc <- mean(datasim$biomarkerNA, na.rm = TRUE)
+se_cc <- sd(datasim$biomarkerNA, na.rm = TRUE) / sqrt(sum(!is.na(datasim$biomarkerNA)))
+
+#LOD
+mean_lod <- mean(datasim$biomarkerlod, na.rm = TRUE)
+se_lod <- sd(datasim$biomarkerlod, na.rm = TRUE) / sqrt(length(datasim$biomarkerlod))
+
+#LOD/2
+mean_lod2 <- mean(datasim$biomarkerlod2)
+se_lod2 <- sd(datasim$biomarkerlod2) / sqrt(length(datasim$biomarkerlod2))
+
+
+#LOD/sqrt(2)
+mean_lodsqrt2 <- mean(datasim$biomarkerlodsqrt2)
+se_lodsqrt2 <- sd(datasim$biomarkerlodsqrt2) / sqrt(length(datasim$biomarkerlodsqrt2))
+
+#0
+mean_0 <- mean(datasim$biomarker0)
+se_0 <- sd(datasim$biomarker0) / sqrt(length(datasim$biomarker0))
+
+
+
+# creating a data frame and adding the 95% confidence interval
+descriptive <- data.frame(mean = c(mean_full, mean_cc, mean_lod, mean_lod2, mean_lodsqrt2, mean_0), 
+                   se = c(se_full, se_cc, se_lod, se_lod2, se_lodsqrt2, se_0))
+                    
+descriptive$ci_lower <- descriptive$mean - 1.96 * descriptive$se
+descriptive$ci_upper <- descriptive$mean + 1.96 * descriptive$se
+
+
+descriptive <- as.data.frame(rbind(descriptive, 
+                     descriptive_km, 
+                   descriptive_ros, 
+                   descriptive_tobit
+                   ))
+
+descriptive$label <- c("Full data", "Complete Case", "LOD imputation", 
+                        "LOD/2 imputation", "LOD/sqrt(2) imputation", "0 imputation", 
+                       "Kaplan Meier", "ROS", "Tobit")
+descriptive$index <- c(1, 2, 3, 4, 5, 6, 7, 8, 9)
+
+##Forest plot to compare results
+forestplotmean <- ggplot(descriptive, aes(y = index, x = mean)) +
+  geom_point(shape = 18, size = 5) +  
+  geom_errorbarh(aes(xmin = ci_lower , xmax = ci_upper), height = 0.25) +
+  geom_vline(xintercept = mean_full, color = "red", linetype = "dashed", cex = 1, alpha = 0.5) +
+  scale_y_continuous(name = "", breaks=1:9, labels = descriptive$label, trans = "reverse") +
+  xlab("Mean (95% CI)") + 
+  ylab(" ") + 
+  theme_bw() +
+  theme(panel.border = element_blank(),
+        #panel.background = element_blank(),
+        #panel.grid.major = element_blank(), 
+        #panel.grid.minor = element_blank(), 
+        axis.line = element_line(colour = "black"),
+        axis.text.y = element_text(size = 12, colour = "black"),
+        axis.text.x.bottom = element_text(size = 12, colour = "black"),
+        axis.title.x = element_text(size = 12, colour = "black")) +
+  ggtitle("mean estimation according to missing data handling")
+
+forestplotmean
+
+
+ggsave(filename = "forestplotmean2.png", plot = forestplotmean, width = 12, height = 8 )
+
+```
+
+### 6)	Incomplete data reporting and sensitivity assessment - fig 15.6
+
+```{r}
+##fit with full data: 
+modelfull <- glm(ORR ~ biomarker, family = "binomial", data = datasim)
+##fit with complete case: 
+modelcomp <- glm(ORR ~ biomarkerNA, family = "binomial", data = datasim)
+##fit with LOD: 
+modellod <- glm(ORR ~ biomarkerlod, family = "binomial", data = datasim)
+##fit with LOD/2: 
+modellod2 <- glm(ORR ~ biomarkerlod2, family = "binomial", data = datasim)
+##fit with LOD/sqrt2: 
+modellodsqrt2 <- glm(ORR ~ biomarkerlodsqrt2, family = "binomial", data = datasim)
+##fit with 0: 
+model0 <- glm(ORR ~ biomarker0, family = "binomial", data = datasim)
+##fit MI: 
+fit.imp.log <- impdat %>%
+  with(glm(ORR ~ biomarkerNA, family = "binomial"))
+
+modelMI <- pool(fit.imp.log)
+```
+
+
+```{r}
+##Combine results
+logisticdata <- as.data.frame(rbind(summary(modelfull)$coef[2, ], 
+                      summary(modelcomp)$coef[2, ], 
+                      summary(modellod)$coef[2, ], 
+                      summary(modellod2)$coef[2, ],
+                      summary(modellodsqrt2)$coef[2, ],
+                      summary(model0)$coef[2, ], 
+                      summary(modelMI)[2, c("estimate", "std.error", "statistic", "p.value")]))
+
+#Renaiming because of different convention between mice and glm
+rownames(logisticdata) <- c("full", "complete", "lod", "lod2", "lodsqrt2", "0", "MI")
+colnames(logisticdata) <- names(summary(modelfull)$coef[2, ])
+
+logisticdata$LL <- logisticdata$Estimate - qt(0.975,df=N-1)*logisticdata$`Std. Error`/sqrt(N)
+logisticdata$UL <- logisticdata$Estimate + qt(0.975,df=N-1)*logisticdata$`Std. Error`/sqrt(N)
+logisticdata$IC <- paste(round(logisticdata$LL, 2),
+                         round(logisticdata$UL, 2), sep = ", ")
+logisticdata$label <- c("Full data", "Complete Case", "LOD imputation", 
+                        "LOD/2 imputation", "LOD/sqrt(2) imputation", "0 imputation", "Multiple imputation")
+logisticdata$index <- c(1, 2, 3, 4, 5, 6, 7)
+
+logisticdata
+
+##Forest plot
+forestplot <- ggplot(logisticdata, aes(y = index, x = Estimate)) +
+  geom_point(shape = 18, size = 5, color = "black") +  
+  geom_errorbarh(aes(xmin = LL, xmax = UL), height = 0.25, color = "black") +
+  geom_vline(xintercept = summary(modelfull)$coef[2, 1], color = "red", linetype = "dashed", cex = 1, alpha = 0.5) +
+  scale_y_continuous(name = "", breaks=1:7, labels = logisticdata$label, trans = "reverse") +
+  xlab("Odds Ratio (95% CI)") + 
+  ylab(" ") + 
+  theme_bw() +
+  # theme(panel.border = element_blank(),
+  #       panel.background = element_blank(),
+  #       panel.grid.major = element_blank(), 
+  #       panel.grid.minor = element_blank(), 
+  #       axis.line = element_line(colour = "black"),
+  #       axis.text.y = element_text(size = 12, colour = "black"),
+  #       axis.text.x.bottom = element_text(size = 12, colour = "black"),
+  #       axis.title.x = element_text(size = 12, colour = "black")) +
+  ggtitle("Logistic fit according to missing data handling")
+
+forestplot
+
+ggsave(filename = "forestplot.png", plot = forestplot)
+
+```
+
+
+```{r}
+library(cowplot)
+
+forestplotbw <- ggplot(logisticdata, aes(y = index, x = Estimate)) +
+  geom_point(shape = 18, size = 5, color = "black") +  
+  geom_errorbarh(aes(xmin = LL, xmax = UL), height = 0.25, color = "black") +
+  geom_vline(xintercept = summary(modelfull)$coef[2, 1], color = "black", linetype = "dashed", cex = 1, alpha = 0.5) +
+  scale_y_continuous(name = "", breaks=1:7, labels = logisticdata$label, trans = "reverse") +
+  xlab("Odds Ratio (95% CI)") + 
+  ylab(" ") + 
+  theme_publication +
+  ggtitle("Logistic fit according to missing data handling")
+
+forestplotbw
+
+forestplotmeanbw <- ggplot(descriptive, aes(y = index, x = mean)) +
+  geom_point(shape = 18, size = 5, color = "black") +  
+  geom_errorbarh(aes(xmin = ci_lower , xmax = ci_upper), height = 0.25, color = "black") +
+  geom_vline(xintercept = mean_full, color = "black", linetype = "dashed", cex = 1, alpha = 0.5) +
+  scale_y_continuous(name = "", breaks=1:9, labels = descriptive$label, trans = "reverse") +
+  xlab("Mean (95% CI)") + 
+  ylab(" ") + 
+   theme_publication +
+  ggtitle("Mean estimation according to missing data handling")
+
+forestplotmeanbw
+
+# Combining 2 plots
+forest_combined_plot <- plot_grid(forestplotmeanbw, forestplotbw,
+                           labels = c("A", "B"),   
+                           ncol = 2, align = "h")  
+
+# Titre global
+title <- ggdraw() + 
+  draw_label("Sensitivity of Mean and Logistic Regression Estimates to Imputation Techniques", fontface = 'bold', x = 0.5, hjust = 0.5, size = 10)
+
+final_plot <- plot_grid(title, forest_combined_plot, ncol = 1, rel_heights = c(0.1, 1))
+plotforchapter <- plot_grid(forest_combined_plot, ncol = 1, rel_heights = c(0.1, 1))
+
+# Affichage
+final_plot
+#plotforchapter
+# Sauvegarde
+ggsave("forest_combined_plot.png", plotforchapter, width = 10, height = 4, dpi = 300)
+
+```
+
+
+
