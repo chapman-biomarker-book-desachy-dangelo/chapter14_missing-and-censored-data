@@ -1,5 +1,5 @@
 ---
-title: "Approaches to Missing and Censored Data in Biomarker Research"
+title: "Chapter Fourteen: Approaches to Missing and Censored Data in Biomarker Research"
 output: 
   html_document:
     code_folding: show
@@ -16,6 +16,9 @@ if (requireNamespace("thematic"))
 knitr::opts_chunk$set(warning = FALSE, message = FALSE, fig.showtext = TRUE, comment = NA) 
 
 ```
+
+
+This R Markdown document accompanies the chapter Approaches to Missing and Censored Data in Biomarker Research (Audigier, Geronimi 2026) and provides practical examples for implementing the methods discussed using R. It illustrates key approaches for handling missing and censored biomarker data through reproducible code and real-data–inspired examples. Readers are encouraged to explore and adapt the code to their own applications.
 
 ```{r include=FALSE}
 # packageurl <- "https://cran.r-project.org/src/contrib/Archive/gsl/gsl_2.1-8.tar.gz"
@@ -36,7 +39,7 @@ library(ISLR)
 source(file = "functions.R")
 ```
 
-```{r theme, include=FALSE}
+```{r theme, include=FALSE, fig.showtext=TRUE}
 
 ##theme for plots 
 library(ggplot2)
@@ -58,9 +61,11 @@ theme_publication <- theme_bw() +
   )
 
 ```
-## 4)	The case of omics data
+## The case of omics data
 
-```{r data, include=FALSE}
+NCI60 data contains expressions levels on p=6830 genes from n=64 cancer cells lines (Ross et al, 2000). Cells can be divided into K=14 cancer types. To illustrate multivariate exploratory methods on incomplete data, 30% of  the values are generated to be missing with  missing values are artificially added according to a MCAR mechanism. Then, iterative PCA is performed using d=16 dimensions (number estimated using cross-validation).
+
+```{r data, include=FALSE, fig.showtext=TRUE}
 set.seed(1234)
 data("NCI60", package = "ISLR")
 nci.lab <- NCI60$labs
@@ -71,9 +76,9 @@ k <- length(unique(nci.lab))
 xxna<- clusterMI::prodna(nci.data, pct = 0.3)
 ```
 
-### Principal components - section 4.a.i - figure 15.1
+### Principal components 
 
-```{r, include=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+```{r, include=TRUE, echo=TRUE, message=FALSE, warning=FALSE, fig.showtext=TRUE}
 
 ## number of components (time consumming)
 # res.ncp <- estim_ncpPCA(xxna,
@@ -109,7 +114,8 @@ legend("topright", pch = 3,cex = .8, lwd = 2,legend = unique(nci.lab), ncol = 2,
 #dev.off()
 ```
 
-```{r, include=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+
+```{r, include=TRUE, echo=TRUE, message=FALSE, warning=FALSE, fig.showtext=TRUE}
 #png("pca.png", res=300,width=2000, height=2000)
 res.pca.full <- PCA(nci.data, graph=FALSE)
 plot.new()
@@ -125,10 +131,13 @@ legend("topright", pch = 3,cex = .8, lwd = 2,legend = unique(nci.lab), ncol = 2,
 #dev.off()
 ```
 
-### Clustering - section 4.a.ii - figure 15.2
+Each point corresponds to a cell lines. The shade of grey scale color corresponds to a type of cancer. This figure reports the projection of observations onto the two first two principal components. For comparison, the figure shows the PCA map from full data and the one obtained from incomplete data with iterative PCA. This graph allows a first visualization of the variability within the a same cancer type, as well as the variability between each of their cancer types. This projection is optimal in the sense that observations are well separated according to their gene expression, and additionally in lines with the full data projection, but it does not aim at providing necessarily the best separation of cancer type.
 
+### Clustering
 
-```{r, include=TRUE}
+We are now clustering cell lines from incomplete data to determine whether the observations can be clustered into distinct types of cancer. For To achieving achieve this goal, we consider kmeans clustering and address missing values using a direct approach. Figure 15.2 reports the factorial analysis highlighting the associations between cancer types and the kpod partition. For instance, the proximities between some clusters and some cancer types indicates that cell lines corresponding to ovarian cancer and prostate cancer are gathered in cluster 13, while cell lines related to colon cancer are in clusters 1 and 10.
+
+```{r, include=TRUE, fig.showtext=TRUE}
 
 ## direct
 #res.kpod <- kpod(X = as.matrix(xxna), k = k)
@@ -143,9 +152,13 @@ print(plot(res.ca, graph.type = "classic",cex=1.2,col.row = "black", col.col = "
 #dev.off()
 ```
 
-### Subspace clustering - section 4.a.iii - figure 15.3
+Associations between the kpod partition and cancer types: Correspondence Analysis factor map. Black numbers indicate clusters obtained by kpod, while cancer types are represented by their names in grey
 
-```{r, include=TRUE}
+### Subspace clustering
+
+We apply RKpod to NCI60 data in order to obtain a visualization of clusters, as well as a partition more robust to redundant or noised variables. Note that it could additionally allow identification of biomarkers’ subsets most relevant for patient stratification. The method is applied for a low low-rank dimension equal to 6. Missing values in RKpod are initialized using MI by PCA with r=16 dimensions seven times. Figure 15.3 reports the data projection onto the principal subspace. Compared to Figure 15.1, the projection aims to make clusters as widely dispersed as possible.
+
+```{r, include=TRUE, fig.showtext=TRUE}
 
 # MI
 
@@ -180,11 +193,13 @@ print(plot.rkpod(res.rkpod))
 #dev.off()
 ```
 
-## 5)	The case of unique biomarkers
+RKpod map for NCI60 data. Points correspond to observations, while crosses correspond to centers of clusters provided by RKpod.
+
+## The case of unique biomarkers
 
 ### Data simulation
 
-We first simulate data based on the distribution of biomarkers (BMK) to better evaluate the impact of missing values on our statistical outcomes. This simulation, which includes fitting a logistic regression, serves as an illustrative example to demonstrate how missing data can influence efficacy related analyses. 
+To illustrate the implications of LOD-related missingness in biomarker-based analyses, we simulate a dataset replicating the distribution of a biomarker, in association with relevant covariates and a binary clinical outcome. We then fit a logistic regression model to examine how different imputation strategies for values below the LOD affect the estimation of prognostic effects. The simulated dataset comprises n=150 observations, with approximately 40% of biomarker values falling below the detection limit and thus not observed. This level of missingness highlights the practical challenges commonly encountered in real-life datasets. 
 
 ```{r}
 library(ggplot2)
@@ -214,7 +229,7 @@ datasim <- data.frame(age = age, gender = as.factor(gender), mutation = mutation
 
 #### Biomarker according to ORR
 
-```{r}
+```{r, fig.showtext=TRUE}
 corrplot <- ggboxplot(datasim, "ORR", "biomarker",
           color = "ORR", palette =c("#00AFBB", "#E7B800"),
           add = "jitter", shape = "ORR") + ggtitle("Biomarker distribution according to ORR")
@@ -225,7 +240,7 @@ corrplot
 
 #### Biomarker according to age
 
-```{r}
+```{r, fig.showtext=TRUE}
 ggscatter(datasim, x = "age", y = "biomarker",
           color = "black", shape = 21, size = 3, # Points color, shape and size
           add = "reg.line",  # Add regressin line
@@ -239,7 +254,7 @@ ggscatter(datasim, x = "age", y = "biomarker",
 
 #### Biomarker according to gender
 
-```{r}
+```{r, fig.showtext=TRUE}
 ggboxplot(datasim, "gender", "biomarker",
           color = "gender", palette =c("#00AFBB", "#E7B800"),
           add = "jitter", shape = "gender")+
@@ -249,7 +264,7 @@ ggboxplot(datasim, "gender", "biomarker",
 
 #### Biomarker according to mutation
 
-```{r}
+```{r, fig.showtext=TRUE}
 ggboxplot(datasim, "mutation", "biomarker",
           color = "mutation", palette =c("#00AFBB", "#E7B800"),
           add = "jitter", shape = "mutation")+
@@ -257,10 +272,10 @@ ggboxplot(datasim, "mutation", "biomarker",
 
 ```
 
-### Logistic regression fit figure 15.4
+### Logistic regression fit figure
 
 
-```{r}
+```{r, fig.showtext=TRUE}
 
 LOD <- quantile(datasim$biomarker, probs = 0.4)
 
@@ -302,7 +317,7 @@ ggsave(filename = "logfit.png", plot = logfit)
 
 ### Adding missing data and single imputation
 
-```{r}
+```{r, fig.showtext=TRUE}
 library(gridExtra)
 
 datasim$biomarkerNA  <- datasim$biomarker
@@ -346,10 +361,10 @@ grid.arrange(plotfull, plotcomp, plotlod,
 ```
 
 
-### Multiple imputation from section 5.c - figure 15.5
+### Multiple imputation from section
 
 
-```{r}
+```{r, fig.showtext=TRUE}
 library(qgcomp)
 library(mice)
 library(dplyr)
@@ -427,14 +442,15 @@ boxplotmibw
 
 ggsave(filename = "boxplot.png", plot = boxplotmibw, width = 7, height = 5)
 
-
 ```
 
-### 5.a	Descriptive analysis of left censored biomarkers
+Censored values were imputed below the LOD, as expected, and their consistency can be checked against the distribution of observed values above the detection limit
 
-i-Kaplan Meier 
+###	Descriptive analysis of left censored biomarkers
 
-```{r}
+## Kaplan Meier 
+
+```{r, fig.showtext=TRUE}
 library(NADA)
 library(censReg)
 
@@ -448,9 +464,9 @@ descriptive_km
 ```
 
 
-ii-ROS 
+## ROS 
 
-```{r}
+```{r, fig.showtext=TRUE}
 #regression on order statistics:
 ros <- NADA::cenros(datasim$biomarker, is.na(datasim$cens))
 
@@ -474,9 +490,9 @@ descriptive_ros
 
 
 
-Tobit
+## Tobit
 
-```{r}
+```{r, fig.showtext=TRUE}
 tobit <- censReg::censReg(datasim$biomarkerlod~1, left = LOD)
 
 # Estimateur (moyenne)
@@ -498,9 +514,12 @@ descriptive_tobit
 
 
 
+### Incomplete data reporting and sensitivity assessment
+
+
 Comparison with full model and single imputation
 
-```{r}
+```{r, fig.showtext=TRUE}
 #Full model 
 mean_full <- mean(datasim$biomarker)
 se_full <- sd(datasim$biomarker) / sqrt(length(datasim$biomarker))
@@ -566,16 +585,15 @@ forestplotmean <- ggplot(descriptive, aes(y = index, x = mean)) +
         axis.title.x = element_text(size = 12, colour = "black")) +
   ggtitle("mean estimation according to missing data handling")
 
-forestplotmean
+#forestplotmean
 
 
 ggsave(filename = "forestplotmean2.png", plot = forestplotmean, width = 12, height = 8 )
 
 ```
 
-### 6)	Incomplete data reporting and sensitivity assessment - fig 15.6
 
-```{r}
+```{r, fig.showtext=TRUE}
 ##fit with full data: 
 modelfull <- glm(ORR ~ biomarker, family = "binomial", data = datasim)
 ##fit with complete case: 
@@ -596,7 +614,7 @@ modelMI <- pool(fit.imp.log)
 ```
 
 
-```{r}
+```{r, fig.showtext=TRUE}
 ##Combine results
 logisticdata <- as.data.frame(rbind(summary(modelfull)$coef[2, ], 
                       summary(modelcomp)$coef[2, ], 
@@ -639,14 +657,14 @@ forestplot <- ggplot(logisticdata, aes(y = index, x = Estimate)) +
   #       axis.title.x = element_text(size = 12, colour = "black")) +
   ggtitle("Logistic fit according to missing data handling")
 
-forestplot
+#forestplot
 
 ggsave(filename = "forestplot.png", plot = forestplot)
 
 ```
 
 
-```{r}
+```{r, fig.showtext=TRUE}
 library(cowplot)
 
 forestplotbw <- ggplot(logisticdata, aes(y = index, x = Estimate)) +
@@ -659,7 +677,7 @@ forestplotbw <- ggplot(logisticdata, aes(y = index, x = Estimate)) +
   theme_publication +
   ggtitle("Logistic fit according to missing data handling")
 
-forestplotbw
+#forestplotbw
 
 forestplotmeanbw <- ggplot(descriptive, aes(y = index, x = mean)) +
   geom_point(shape = 18, size = 5, color = "black") +  
@@ -671,7 +689,7 @@ forestplotmeanbw <- ggplot(descriptive, aes(y = index, x = mean)) +
    theme_publication +
   ggtitle("Mean estimation according to missing data handling")
 
-forestplotmeanbw
+#forestplotmeanbw
 
 # Combining 2 plots
 forest_combined_plot <- plot_grid(forestplotmeanbw, forestplotbw,
@@ -694,4 +712,4 @@ ggsave("forest_combined_plot.png", plotforchapter, width = 10, height = 4, dpi =
 ```
 
 
-
+This figure summarizes how different strategies for handling censored biomarker values affect both the estimated mean level and the inferred prognostic association with clinical outcome. The dashed line indicates the reference estimate from the complete dataset before censoring. Naive substitutions (e.g., zeros) or complete case analysis distort the estimates, leading to marked under- or overestimation. Despite their simplicity, substitution methods using LOD/2 or LOD/√2 perform better here, providing estimates closer to the reference value. Model-based approaches (e.g., Tobit regression, ROS, multiple imputation) yield estimates most consistent with the full data, highlighting their ability to appropriately account for censoring. In contrast, Kaplan–Meier imputation tends to overestimate the mean in this setting.
